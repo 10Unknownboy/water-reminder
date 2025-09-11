@@ -1,0 +1,6 @@
+cronJobs:
+  - name: water-reminder
+    env: python
+    schedule: "*/30 8-23,0-1 * * *"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python reminder.py"
