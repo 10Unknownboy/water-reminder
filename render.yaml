@@ -1,6 +1,16 @@
-cronJobs:
-  - name: water-reminder
+services:
+  - type: cron
+    name: water-reminder-morning-evening
     env: python
-    schedule: "*/30 8-23,0-1 * * *"
+    plan: free
+    schedule: "*/30 8-23 * * *"
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python reminder.py"
+    startCommand: "python main.py"
+
+  - type: cron
+    name: water-reminder-night
+    env: python
+    plan: free
+    schedule: "*/30 0-1 * * *"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"

@@ -1,1 +1,1 @@
-instagrapi
+instagrapi==1.17.10
