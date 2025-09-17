@@ -9,12 +9,12 @@ from flask import Flask
 app = Flask(__name__)
 
 # Instagram credentials from environment
-USERNAME = os.getenv("USERNAME")
-PASSWORD = os.getenv("PASSWORD")
+USERNAME = os.getenv("IG_USERNAME")
+PASSWORD = os.getenv("IG_PASSWORD")
 
-# Target users
-TARGET_USERS = ["nuh.uh.avani", "manglesh.__.ks"]
-MESSAGE = "WATER REMINDER!!!"
+# Target users (comma-separated env var recommended)
+TARGET_USERS = os.getenv("TARGET_USERS", "nuh.uh.avani,manglesh.__.ks").split(",")
+MESSAGE = "💧 WATER REMINDER!!!"
 
 DELAY_SECONDS = 30 * 60  # 30 minutes
 LOG_FILE = "reminder_log.txt"
@@ -31,6 +31,7 @@ logs = []
 
 
 def is_within_active_hours():
+    """Check if current UTC time falls inside active reminder windows."""
     now = datetime.now(timezone.utc)
     current_time = now.hour + now.minute / 60
     for start, end in ACTIVE_WINDOWS:
@@ -40,11 +41,11 @@ def is_within_active_hours():
 
 
 def log_message(message: str):
+    """Save log messages in memory + file."""
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     entry = f"[{timestamp}] {message}"
     print(entry)
     logs.append(entry)
-    # keep only last 200 logs in memory
     if len(logs) > 200:
         logs.pop(0)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -65,11 +66,14 @@ def bot_loop():
         log_message(f"❌ Login failed: {e}")
         return
 
-    # Get user IDs
+    # Resolve usernames → user_ids
     user_ids = []
     for username in TARGET_USERS:
+        username = username.strip()
+        if not username:
+            continue
         try:
-            uid = cl.user_id_from_username(username)  # updated method in 2.x
+            uid = cl.user_id_from_username(username)
             user_ids.append(uid)
             log_message(f"Resolved {username} -> {uid}")
         except Exception as e:
@@ -79,7 +83,7 @@ def bot_loop():
         log_message("No valid users found. Exiting bot.")
         return
 
-    # Loop forever
+    # Main reminder loop
     while True:
         if is_within_active_hours():
             try:
@@ -95,11 +99,10 @@ def bot_loop():
 # Start bot in background thread
 threading.Thread(target=bot_loop, daemon=True).start()
 
-
 # Web endpoints
 @app.route("/")
 def home():
-    return "<h1>🚰 Water Reminder Bot is running</h1><p>Check /status for logs.</p>"
+    return "<h1>🚰 Water Reminder Bot is running</h1><p>Visit <a href='/status'>/status</a> for logs.</p>"
 
 @app.route("/status")
 def status():
@@ -112,5 +115,5 @@ def ping():
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 10000))  # Render sets PORT automatically
+    port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
