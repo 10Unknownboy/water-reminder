@@ -9,8 +9,8 @@ from flask import Flask
 app = Flask(__name__)
 
 # Instagram credentials from environment
-USERNAME = os.getenv("IG_USERNAME")
-PASSWORD = os.getenv("IG_PASSWORD")
+USERNAME = os.getenv("USERNAME")
+PASSWORD = os.getenv("PASSWORD")
 
 # Target users (comma-separated env var recommended)
 TARGET_USERS = os.getenv("TARGET_USERS", "nuh.uh.avani,manglesh.__.ks").split(",")
