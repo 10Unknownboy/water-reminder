@@ -44,8 +44,23 @@ def main():
     if os.path.exists(LOG_FILE):
         os.remove(LOG_FILE)
 
-    cl = Client()
-    cl.login(USERNAME, PASSWORD)
+    # Initialize client with session management
+    if os.path.exists("session.json"):
+        cl = Client()
+        cl.load_settings("session.json")
+        try:
+            cl.login(USERNAME, PASSWORD)
+            log_message("Logged in using saved session")
+        except Exception as e:
+            log_message(f"Session login failed: {e}, trying fresh login...")
+            cl = Client()
+            cl.login(USERNAME, PASSWORD)
+            cl.dump_settings("session.json")
+    else:
+        cl = Client()
+        cl.login(USERNAME, PASSWORD)
+        cl.dump_settings("session.json")
+        log_message("New session created and saved")
 
     # Get user IDs for all target users
     user_ids = []
