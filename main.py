@@ -3,7 +3,7 @@ import time
 import threading
 from datetime import datetime, timezone
 import os
-from flask import Flask
+from flask import Flask, request, redirect
 
 # Flask app
 app = Flask(__name__)
@@ -12,9 +12,9 @@ app = Flask(__name__)
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
 
-# Target users (comma-separated env var recommended)
+# Target users
 TARGET_USERS = os.getenv("TARGET_USERS", "nuh.uh.avani,manglesh.__.ks").split(",")
-MESSAGE = "💧 WATER REMINDER!!!"
+MESSAGE = "WATER REMINDER!!!"
 
 DELAY_SECONDS = 30 * 60  # 30 minutes
 LOG_FILE = "reminder_log.txt"
@@ -26,12 +26,12 @@ ACTIVE_WINDOWS = [
     (19.5, 20.5), # 01:00–02:00 IST
 ]
 
-# Keep recent logs in memory for the web page
-logs = []
+logs = []   # keep recent logs
+cl = Client()
+user_ids = []  # global for reuse
 
 
 def is_within_active_hours():
-    """Check if current UTC time falls inside active reminder windows."""
     now = datetime.now(timezone.utc)
     current_time = now.hour + now.minute / 60
     for start, end in ACTIVE_WINDOWS:
@@ -41,7 +41,6 @@ def is_within_active_hours():
 
 
 def log_message(message: str):
-    """Save log messages in memory + file."""
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     entry = f"[{timestamp}] {message}"
     print(entry)
@@ -53,7 +52,7 @@ def log_message(message: str):
 
 
 def bot_loop():
-    cl = Client()
+    global cl, user_ids
     try:
         if os.path.exists("session.json"):
             cl.load_settings("session.json")
@@ -66,8 +65,7 @@ def bot_loop():
         log_message(f"❌ Login failed: {e}")
         return
 
-    # Resolve usernames → user_ids
-    user_ids = []
+    # Resolve usernames once
     for username in TARGET_USERS:
         username = username.strip()
         if not username:
@@ -83,7 +81,7 @@ def bot_loop():
         log_message("No valid users found. Exiting bot.")
         return
 
-    # Main reminder loop
+    # Loop forever
     while True:
         if is_within_active_hours():
             try:
@@ -99,15 +97,39 @@ def bot_loop():
 # Start bot in background thread
 threading.Thread(target=bot_loop, daemon=True).start()
 
-# Web endpoints
-@app.route("/")
+
+# ---------------- WEB ROUTES ----------------
+
+@app.route("/", methods=["GET", "POST"])
 def home():
-    return "<h1>🚰 Water Reminder Bot is running</h1><p>Visit <a href='/status'>/status</a> for logs.</p>"
+    if request.method == "POST":
+        custom_message = request.form.get("message", "").strip()
+        if custom_message:
+            try:
+                cl.direct_send(custom_message, user_ids=user_ids)
+                log_message(f"📩 Manual reminder sent: '{custom_message}'")
+                return redirect("/status")
+            except Exception as e:
+                log_message(f"❌ Error sending manual reminder: {e}")
+                return f"<p>Error: {e}</p><a href='/'>Back</a>", 500
+
+    # HTML form + instructions
+    return """
+    <h1>🚰 Water Reminder Bot</h1>
+    <form method="POST">
+        <textarea name="message" rows="3" cols="40" placeholder="Type your reminder..."></textarea><br>
+        <button type="submit">Send Reminder</button>
+    </form>
+    <p>✅ Bot is running automatically.<br>
+       📜 See <a href='/status'>logs</a>.</p>
+    """
+
 
 @app.route("/status")
 def status():
     last_20 = logs[-20:] if len(logs) > 20 else logs
-    return "<br>".join(last_20)
+    return "<h2>📜 Logs (latest 20)</h2>" + "<br>".join(last_20)
+
 
 @app.route("/ping")
 def ping():
