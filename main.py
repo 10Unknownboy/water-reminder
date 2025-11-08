@@ -13,7 +13,7 @@ USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
 
 # Target users
-TARGET_USERS = os.getenv("TARGET_USERS", "nuh.uh.avani,manglesh.__.ks").split(",")
+TARGET_USERS = os.getenv("TARGET_USERS", "manglesh.__.ks").split(",") # nuh.uh.avani
 MESSAGE = "WATER REMINDER!!!"
 
 DELAY_SECONDS = 30 * 60  # 30 minutes
