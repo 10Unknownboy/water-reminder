@@ -3,32 +3,59 @@ import time
 import threading
 from datetime import datetime, timezone
 import os
+import json
 from flask import Flask, request, redirect
 
 # Flask app
 app = Flask(__name__)
 
-# Instagram credentials from environment
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
 
-# Target users
 TARGET_USERS = os.getenv("TARGET_USERS", "nuh.uh.avani,manglesh.__.ks").split(",") 
 MESSAGE = "WATER REMINDER!!!"
 
-DELAY_SECONDS = 30 * 60  # 30 minutes
+# Reminder every 50 mins
+DELAY_SECONDS = 50 * 60  
+
 LOG_FILE = "reminder_log.txt"
 
-# Active windows in UTC
+# Active window in UTC (07:00–23:50 IST)
 ACTIVE_WINDOWS = [
-    (2.5, 6.5),   # 08:00–12:00 IST
-    (7.0, 17.5),  # 12:30–23:00 IST
-    (19.5, 20.5), # 01:00–02:00 IST
+    (1.5, 18.3333)
 ]
 
-logs = []   # keep recent logs
+logs = []
 cl = Client()
-user_ids = []  # global for reuse
+user_ids = {}
+username_map = {}  # uid -> username
+
+
+# ===========================
+# Utility Functions
+# ===========================
+
+def ensure_user_log_file(username):
+    """Ensure JSON log file exists for each user."""
+    os.makedirs("logs", exist_ok=True)
+    filepath = f"logs/user_{username}.json"
+    if not os.path.exists(filepath):
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump([], f, indent=4)
+    return filepath
+
+
+def append_user_log(username, entry):
+    """Append an entry to a user's JSON log."""
+    filepath = ensure_user_log_file(username)
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    data.append(entry)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
 
 
 def is_within_active_hours():
@@ -51,8 +78,41 @@ def log_message(message: str):
         f.write(entry + "\n")
 
 
+# ===========================
+# LAST ACTIVE LOGGER LOOP
+# ===========================
+
+def last_active_logger():
+    """Logs last active information every 15 minutes."""
+    while True:
+        for uid, username in username_map.items():
+            try:
+                info = cl.user_info(uid)
+
+                entry = {
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                    "last_active_at": info.last_activity_at.isoformat() if info.last_activity_at else None,
+                    "is_active": info.is_active,
+                    "is_online": info.is_online
+                }
+
+                append_user_log(username, entry)
+                log_message(f"Logged activity for {username}")
+
+            except Exception as e:
+                log_message(f"Error logging activity for {username}: {e}")
+
+        time.sleep(15 * 60)  # 15 minutes
+
+
+# ===========================
+# BOT LOOP FOR REMINDERS
+# ===========================
+
 def bot_loop():
-    global cl, user_ids
+    global cl, user_ids, username_map
+
+    # Login
     try:
         if os.path.exists("session.json"):
             cl.load_settings("session.json")
@@ -60,45 +120,53 @@ def bot_loop():
         else:
             cl.login(USERNAME, PASSWORD)
         cl.dump_settings("session.json")
-        log_message("✅ Logged in successfully")
+        log_message("Logged in successfully")
     except Exception as e:
-        log_message(f"❌ Login failed: {e}")
+        log_message(f"Login failed: {e}")
         return
 
-    # Resolve usernames once
+    # Resolve usernames to IDs
     for username in TARGET_USERS:
         username = username.strip()
         if not username:
             continue
         try:
             uid = cl.user_id_from_username(username)
-            user_ids.append(uid)
+            user_ids[uid] = username
+            username_map[uid] = username
+            ensure_user_log_file(username)
             log_message(f"Resolved {username} -> {uid}")
         except Exception as e:
             log_message(f"Error resolving {username}: {e}")
 
-    if not user_ids:
+    if not username_map:
         log_message("No valid users found. Exiting bot.")
         return
 
-    # Loop forever
+    # Start last active logging thread
+    threading.Thread(target=last_active_logger, daemon=True).start()
+
+    # Main reminder loop
     while True:
         if is_within_active_hours():
             try:
-                cl.direct_send(MESSAGE, user_ids=user_ids)
-                log_message(f"📩 Sent reminder to {len(user_ids)} users")
+                cl.direct_send(MESSAGE, user_ids=list(username_map.keys()))
+                log_message(f"Sent reminder to {len(username_map)} users")
             except Exception as e:
                 log_message(f"Error sending message: {e}")
         else:
-            log_message("⏸ Inactive hours - no reminder sent")
+            log_message("Inactive hours - no reminder sent")
+
         time.sleep(DELAY_SECONDS)
 
 
-# Start bot in background thread
+# Start bot thread
 threading.Thread(target=bot_loop, daemon=True).start()
 
 
-# ---------------- WEB ROUTES ----------------
+# ===========================
+# WEB ROUTES
+# ===========================
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -106,29 +174,28 @@ def home():
         custom_message = request.form.get("message", "").strip()
         if custom_message:
             try:
-                cl.direct_send(custom_message, user_ids=user_ids)
-                log_message(f"📩 Manual reminder sent: '{custom_message}'")
+                cl.direct_send(custom_message, user_ids=list(username_map.keys()))
+                log_message(f"Manual reminder sent: '{custom_message}'")
                 return redirect("/status")
             except Exception as e:
-                log_message(f"❌ Error sending manual reminder: {e}")
+                log_message(f"Error sending manual reminder: {e}")
                 return f"<p>Error: {e}</p><a href='/'>Back</a>", 500
 
-    # HTML form + instructions
     return """
-    <h1>🚰 Water Reminder Bot</h1>
+    <h1>Water Reminder Bot</h1>
     <form method="POST">
         <textarea name="message" rows="3" cols="40" placeholder="Type your reminder..."></textarea><br>
         <button type="submit">Send Reminder</button>
     </form>
-    <p>✅ Bot is running automatically.<br>
-       📜 See <a href='/status'>logs</a>.</p>
+    <p>Bot running automatically.<br>
+       See <a href='/status'>logs</a>.</p>
     """
 
 
 @app.route("/status")
 def status():
     last_20 = logs[-20:] if len(logs) > 20 else logs
-    return "<h2>📜 Logs (latest 20)</h2>" + "<br>".join(last_20)
+    return "<h2>Logs (latest 20)</h2>" + "<br>".join(last_20)
 
 
 @app.route("/ping")
