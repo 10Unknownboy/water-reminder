@@ -35,29 +35,6 @@ username_map = {}  # uid -> username
 # Utility Functions
 # ===========================
 
-def ensure_user_log_file(username):
-    """Ensure JSON log file exists for each user."""
-    os.makedirs("logs", exist_ok=True)
-    filepath = f"logs/user_{username}.json"
-    if not os.path.exists(filepath):
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump([], f, indent=4)
-    return filepath
-
-
-def append_user_log(username, entry):
-    """Append an entry to a user's JSON log."""
-    filepath = ensure_user_log_file(username)
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    data.append(entry)
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-
 def is_within_active_hours():
     now = datetime.now(timezone.utc)
     current_time = now.hour + now.minute / 60
@@ -79,34 +56,7 @@ def log_message(message: str):
 
 
 # ===========================
-# LAST ACTIVE LOGGER LOOP
-# ===========================
-
-def last_active_logger():
-    """Logs last active information every 15 minutes."""
-    while True:
-        for uid, username in username_map.items():
-            try:
-                info = cl.user_info(uid)
-
-                entry = {
-                    "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-                    "last_active_at": info.last_activity_at.isoformat() if info.last_activity_at else None,
-                    "is_active": info.is_active,
-                    "is_online": info.is_online
-                }
-
-                append_user_log(username, entry)
-                log_message(f"Logged activity for {username}")
-
-            except Exception as e:
-                log_message(f"Error logging activity for {username}: {e}")
-
-        time.sleep(15 * 60)  # 15 minutes
-
-
-# ===========================
-# BOT LOOP FOR REMINDERS
+# BOT LOOP (REMINDERS ONLY)
 # ===========================
 
 def bot_loop():
@@ -134,7 +84,6 @@ def bot_loop():
             uid = cl.user_id_from_username(username)
             user_ids[uid] = username
             username_map[uid] = username
-            ensure_user_log_file(username)
             log_message(f"Resolved {username} -> {uid}")
         except Exception as e:
             log_message(f"Error resolving {username}: {e}")
@@ -142,9 +91,6 @@ def bot_loop():
     if not username_map:
         log_message("No valid users found. Exiting bot.")
         return
-
-    # Start last active logging thread
-    threading.Thread(target=last_active_logger, daemon=True).start()
 
     # Main reminder loop
     while True:
